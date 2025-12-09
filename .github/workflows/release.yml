@@ -137,8 +137,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Log in to Docker Hub (optional)
-        continue-on-error: true
+      - name: Log in to Docker Hub
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -150,6 +149,7 @@ jobs:
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/practical_cat_driving_lesson_school_management
           tags: |
             type=semver,pattern={{version}},value=${{ needs.validate.outputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=${{ needs.validate.outputs.version }}
@@ -223,14 +223,17 @@ jobs:
             
             ## 📦 Docker Images
             
-            **GitHub Container Registry:**
-            ```
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            **GitHub Container Registry (GHCR):**
+            ```bash
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version }}
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ```
             
-            **Docker Hub (if configured):**
-            Check Docker Hub for images under your username.
+            **Docker Hub:**
+            ```bash
+            docker pull docker.io/${{ secrets.DOCKERHUB_USERNAME }}/practical_cat_driving_lesson_school_management:${{ needs.validate.outputs.version }}
+            docker pull docker.io/${{ secrets.DOCKERHUB_USERNAME }}/practical_cat_driving_lesson_school_management:latest
+            ```
             
             ## 📝 Recent Changes
             
@@ -239,17 +242,17 @@ jobs:
             ## 🚀 Quick Start
             
             ```bash
-            # Pull the latest release
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version }}
+            # From Docker Hub
+            docker pull docker.io/${{ secrets.DOCKERHUB_USERNAME }}/practical_cat_driving_lesson_school_management:${{ needs.validate.outputs.version }}
             
             # Run the container
-            docker run -p 4000:4000 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version }}
+            docker run -p 4000:4000 docker.io/${{ secrets.DOCKERHUB_USERNAME }}/practical_cat_driving_lesson_school_management:${{ needs.validate.outputs.version }}
             ```
             
             ## ✅ Verification
             
             - ✅ Tests: Passed
-            - ✅ Docker Image: Built and pushed
+            - ✅ Docker Image: Built and pushed to GHCR and Docker Hub
             - ✅ Code Quality: Verified
             
             **Release Date:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')
