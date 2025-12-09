@@ -1,51 +1,67 @@
 ---
-# Deployment with Rolling Update strategy
+# Rolling Update Deployment Strategy
+# This configuration implements a rolling update deployment where:
+# - New pods are gradually created while old pods are terminated
+# - No downtime occurs during updates
+# - Resource requirements are optimized based on profiling
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: driving-school-app
-  namespace: driving-school
+  name: driving-school-manager
+  namespace: driving-school-manager
   labels:
-    app: driving-school
-    version: 1.0.1
-    tier: application
+    app: driving-school-manager
+    phase: production
   annotations:
-    description: "Driving School Lesson Manager - Rolling Update Deployment"
-    deployment-strategy: "rolling-update"
+    description: "Driving School Lesson Manager with rolling update strategy"
+    version: "1.0.1"
+
 spec:
-  # Rolling Update Configuration
+  # Number of desired replicas
+  replicas: 3
+
+  # Rolling update strategy configuration
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1           # Maximum number of pods above desired count during update
-      maxUnavailable: 0     # Ensure zero downtime - no pods taken down
-  
-  # Replica Configuration
-  replicas: 3
-  
-  # Pod Selection
+      # Maximum number of pods that can be created above the desired number
+      # Value of 1 means: at most 4 pods during update (3 desired + 1 surge)
+      maxSurge: 1
+      # Maximum number of pods that can be unavailable
+      # Value of 1 means: at least 2 pods must always be available
+      maxUnavailable: 1
+
+  # Pod selector for this deployment
   selector:
     matchLabels:
-      app: driving-school
-      tier: application
-  
-  # Pod Template
+      app: driving-school-manager
+      tier: backend
+
+  # Revision history limit for rollback capability
+  revisionHistoryLimit: 10
+
+  # Progressive deployment with minReadySeconds
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+
+  # Pod template
   template:
     metadata:
       labels:
-        app: driving-school
-        tier: application
+        app: driving-school-manager
+        tier: backend
         version: "1.0.1"
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "4000"
         prometheus.io/path: "/metrics"
-    
+
     spec:
-      # Pod Scheduling Configuration
+      # Pod scheduling and affinity rules
       affinity:
-        # Spread pods across different nodes for high availability
         podAntiAffinity:
+          # Prefer to spread pods across different nodes
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
               podAffinityTerm:
@@ -54,55 +70,41 @@ spec:
                     - key: app
                       operator: In
                       values:
-                        - driving-school
+                        - driving-school-manager
                 topologyKey: kubernetes.io/hostname
-        
-        # Node affinity - prefer nodes with specific labels
-        nodeAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 50
-              preference:
-                matchExpressions:
-                  - key: node-type
-                    operator: In
-                    values:
-                      - application-server
-      
-      # Security Context
+
+      # Graceful shutdown configuration
+      terminationGracePeriodSeconds: 30
+
+      # Service account for RBAC
+      serviceAccountName: driving-school-manager
+
+      # Security context
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
         fsGroup: 1001
         seccompProfile:
           type: RuntimeDefault
-      
-      # Service Account
-      serviceAccountName: driving-school-sa
-      
-      # Termination Grace Period for graceful shutdown
-      terminationGracePeriodSeconds: 30
-      
-      # Container Specifications
+
       containers:
-        - name: driving-school
-          image: chouchoute11/practical_cat_driving_lesson_school_management:1.0.1
+        - name: app
+          # Docker image with semantic versioning
+          image: docker.io/chouchoute11/practical_cat_driving_lesson_school_management:1.0.1
           imagePullPolicy: IfNotPresent
-          
-          # Container Ports
+
+          # Container ports
           ports:
             - name: http
               containerPort: 4000
               protocol: TCP
-            - name: metrics
-              containerPort: 9090
-              protocol: TCP
-          
-          # Environment Variables from ConfigMap
+
+          # Environment variables from ConfigMap
           envFrom:
             - configMapRef:
                 name: driving-school-config
-          
-          # Additional Environment Variables
+
+          # Additional environment variables
           env:
             - name: POD_NAME
               valueFrom:
@@ -116,156 +118,139 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
-            - name: NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-          
-          # Resource Management
+
+          # Resource requests and limits based on profiling
+          # These values are calculated from application metrics
           resources:
-            # Requested resources (guaranteed minimum)
+            # Requests: guaranteed minimum resources
             requests:
-              cpu: 250m                 # 0.25 CPU cores
-              memory: 256Mi             # 256 MB RAM
-              ephemeral-storage: 100Mi
-            
-            # Resource limits (maximum allowed)
+              memory: "128Mi"      # Minimum memory needed
+              cpu: "100m"          # Minimum CPU needed (100 millicores)
+              ephemeralStorage: "1Gi"
+            # Limits: maximum resources allowed
             limits:
-              cpu: 500m                 # 0.5 CPU cores
-              memory: 512Mi             # 512 MB RAM
-              ephemeral-storage: 500Mi
-          
-          # Health Checks
+              memory: "512Mi"      # Maximum memory allowed
+              cpu: "500m"          # Maximum CPU allowed (0.5 cores)
+              ephemeralStorage: "2Gi"
+
+          # Liveness probe: restarts container if it becomes unhealthy
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+
+          # Readiness probe: marks pod as ready/not ready
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 2
+
+          # Startup probe: gives app time to start up
           startupProbe:
             httpGet:
               path: /health
               port: http
             initialDelaySeconds: 0
-            periodSeconds: 10
+            periodSeconds: 2
             timeoutSeconds: 3
             successThreshold: 1
-            failureThreshold: 30        # 30 * 10 = 300 seconds startup window
-          
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 15
-            timeoutSeconds: 3
-            successThreshold: 1
-            failureThreshold: 3
-          
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 3
-            successThreshold: 1
-            failureThreshold: 2
-          
-          # Volume Mounts
+            failureThreshold: 30
+
+          # Volume mounts
           volumeMounts:
+            - name: tmp
+              mountPath: /tmp
             - name: logs
-              mountPath: /app/logs
-            - name: temp
-              mountPath: /app/tmp
-            - name: cache
-              mountPath: /app/cache
-          
-          # Security Context for Container
+              mountPath: /var/log/app
+
+          # Security context for the container
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 1001
             capabilities:
               drop:
                 - ALL
-      
+
+          # Lifecycle hooks
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 15"]
+
       # Volumes
       volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
         - name: logs
           emptyDir:
-            sizeLimit: 500Mi
-        - name: temp
-          emptyDir:
-            sizeLimit: 200Mi
-        - name: cache
-          emptyDir:
-            sizeLimit: 300Mi
+            sizeLimit: 2Gi
 
 ---
-# Blue-Green Deployment (Alternative Deployment)
-apiVersion: apps/v1
-kind: Deployment
+# Horizontal Pod Autoscaler for automatic scaling
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
 metadata:
-  name: driving-school-app-blue
-  namespace: driving-school
+  name: driving-school-manager-hpa
+  namespace: driving-school-manager
   labels:
-    app: driving-school
-    deployment-variant: blue
-    version: 1.0.0
-  annotations:
-    description: "Blue variant for blue-green deployment strategy"
+    app: driving-school-manager
+
 spec:
-  replicas: 0  # Scaled to 0 until needed for blue-green switch
-  
-  strategy:
-    type: Recreate  # Blue-Green uses Recreate strategy
-  
-  selector:
-    matchLabels:
-      app: driving-school
-      deployment-variant: blue
-  
-  template:
-    metadata:
-      labels:
-        app: driving-school
-        deployment-variant: blue
-        version: "1.0.0"
-    
-    spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1001
-        fsGroup: 1001
-      
-      containers:
-        - name: driving-school
-          image: chouchoute11/practical_cat_driving_lesson_school_management:1.0.0
-          imagePullPolicy: IfNotPresent
-          
-          ports:
-            - name: http
-              containerPort: 4000
-              protocol: TCP
-          
-          envFrom:
-            - configMapRef:
-                name: driving-school-config
-          
-          resources:
-            requests:
-              cpu: 250m
-              memory: 256Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 15
-            failureThreshold: 3
-          
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            failureThreshold: 2
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: driving-school-manager
+
+  # Scaling limits
+  minReplicas: 2
+  maxReplicas: 10
+
+  # Scaling metrics
+  metrics:
+    # CPU-based scaling
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+    # Memory-based scaling
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+  # Scaling behavior
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+        - type: Pods
+          value: 2
+          periodSeconds: 30
+      selectPolicy: Max

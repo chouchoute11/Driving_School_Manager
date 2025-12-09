@@ -1,0 +1,327 @@
+---
+# Blue-Green Deployment Strategy
+# This configuration implements a blue-green deployment where:
+# - Two complete application versions (blue and green) run in parallel
+# - Traffic switches between versions instantly
+# - Rollback is immediate by switching traffic back
+# - Zero downtime deployment with instant rollback capability
+
+---
+# BLUE DEPLOYMENT (Current Version - v1.0.1)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: driving-school-manager-blue
+  namespace: driving-school-manager
+  labels:
+    app: driving-school-manager
+    version: blue
+    phase: production
+
+spec:
+  replicas: 3
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+
+  selector:
+    matchLabels:
+      app: driving-school-manager
+      version: blue
+
+  revisionHistoryLimit: 5
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+
+  template:
+    metadata:
+      labels:
+        app: driving-school-manager
+        version: blue
+        tier: backend
+      annotations:
+        deployment.version: "blue"
+        image.version: "1.0.1"
+
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - driving-school-manager
+                topologyKey: kubernetes.io/hostname
+
+      terminationGracePeriodSeconds: 30
+      serviceAccountName: driving-school-manager
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+
+      containers:
+        - name: app
+          image: docker.io/chouchoute11/practical_cat_driving_lesson_school_management:1.0.1
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: driving-school-config
+
+          env:
+            - name: DEPLOYMENT_COLOR
+              value: "blue"
+            - name: VERSION
+              value: "1.0.1"
+
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+              ephemeralStorage: "1Gi"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+              ephemeralStorage: "2Gi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 15"]
+
+---
+# GREEN DEPLOYMENT (New Version - Ready for rollout)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: driving-school-manager-green
+  namespace: driving-school-manager
+  labels:
+    app: driving-school-manager
+    version: green
+    phase: production
+
+spec:
+  # Initially scaled to 0 (not serving traffic)
+  replicas: 0
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+
+  selector:
+    matchLabels:
+      app: driving-school-manager
+      version: green
+
+  revisionHistoryLimit: 5
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+
+  template:
+    metadata:
+      labels:
+        app: driving-school-manager
+        version: green
+        tier: backend
+      annotations:
+        deployment.version: "green"
+        image.version: "1.0.2"
+
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - driving-school-manager
+                topologyKey: kubernetes.io/hostname
+
+      terminationGracePeriodSeconds: 30
+      serviceAccountName: driving-school-manager
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+
+      containers:
+        - name: app
+          # New version ready to be deployed
+          image: docker.io/chouchoute11/practical_cat_driving_lesson_school_management:1.0.2
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: driving-school-config
+
+          env:
+            - name: DEPLOYMENT_COLOR
+              value: "green"
+            - name: VERSION
+              value: "1.0.2"
+
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+              ephemeralStorage: "1Gi"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+              ephemeralStorage: "2Gi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 15"]
+
+---
+# Service pointing to BLUE (active version)
+apiVersion: v1
+kind: Service
+metadata:
+  name: driving-school-manager-active
+  namespace: driving-school-manager
+  labels:
+    app: driving-school-manager
+    tier: backend
+
+spec:
+  type: ClusterIP
+
+  selector:
+    app: driving-school-manager
+    version: blue  # Currently routing to blue
+
+  ports:
+    - name: http
+      port: 4000
+      targetPort: http
+      protocol: TCP
+
+  sessionAffinity: ClientIP
+
+---
+# Service pointing to BLUE for testing
+apiVersion: v1
+kind: Service
+metadata:
+  name: driving-school-manager-blue
+  namespace: driving-school-manager
+  labels:
+    app: driving-school-manager
+    version: blue
+
+spec:
+  type: ClusterIP
+
+  selector:
+    app: driving-school-manager
+    version: blue
+
+  ports:
+    - name: http
+      port: 4000
+      targetPort: http
+      protocol: TCP
+
+---
+# Service pointing to GREEN for testing
+apiVersion: v1
+kind: Service
+metadata:
+  name: driving-school-manager-green
+  namespace: driving-school-manager
+  labels:
+    app: driving-school-manager
+    version: green
+
+spec:
+  type: ClusterIP
+
+  selector:
+    app: driving-school-manager
+    version: green
+
+  ports:
+    - name: http
+      port: 4000
+      targetPort: http
+      protocol: TCP

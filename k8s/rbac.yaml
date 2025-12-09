@@ -1,45 +1,119 @@
 ---
-# Service Account
+# RBAC: ServiceAccount
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: driving-school-sa
-  namespace: driving-school
+  name: driving-school-manager
+  namespace: driving-school-manager
   labels:
-    app: driving-school
+    app: driving-school-manager
 
 ---
-# ClusterRole for monitoring and health checks
+# RBAC: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: driving-school-role
+  name: driving-school-manager
   labels:
-    app: driving-school
+    app: driving-school-manager
+
 rules:
   - apiGroups: [""]
     resources: ["pods", "services"]
     verbs: ["get", "list", "watch"]
+
   - apiGroups: [""]
-    resources: ["endpoints"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: ["apps"]
-    resources: ["deployments", "statefulsets"]
-    verbs: ["get", "list", "watch"]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
 
 ---
-# ClusterRoleBinding
+# RBAC: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: driving-school-binding
+  name: driving-school-manager
   labels:
-    app: driving-school
+    app: driving-school-manager
+
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: driving-school-role
+  name: driving-school-manager
+
 subjects:
   - kind: ServiceAccount
-    name: driving-school-sa
-    namespace: driving-school
+    name: driving-school-manager
+    namespace: driving-school-manager
+
+---
+# Pod Disruption Budget for high availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: driving-school-manager-pdb
+  namespace: driving-school-manager
+  labels:
+    app: driving-school-manager
+
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: driving-school-manager
+
+---
+# Network Policy for security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: driving-school-manager-netpol
+  namespace: driving-school-manager
+  labels:
+    app: driving-school-manager
+
+spec:
+  podSelector:
+    matchLabels:
+      app: driving-school-manager
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 4000
+
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 4000
+
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+
+    # Allow external HTTP/HTTPS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443

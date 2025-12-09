@@ -1,130 +1,89 @@
 ---
-# Service (ClusterIP)
+# Service for internal networking
 apiVersion: v1
 kind: Service
 metadata:
-  name: driving-school-service
-  namespace: driving-school
+  name: driving-school-manager
+  namespace: driving-school-manager
   labels:
-    app: driving-school
-    service-type: internal
+    app: driving-school-manager
   annotations:
-    description: "Internal service for driving school application"
+    description: "Internal service for Driving School Lesson Manager"
+
 spec:
+  # Internal service type
   type: ClusterIP
+
+  # Service selector
   selector:
-    app: driving-school
-    tier: application
-  
+    app: driving-school-manager
+    tier: backend
+
+  # Service ports
   ports:
     - name: http
       port: 4000
-      targetPort: 4000
+      targetPort: http
       protocol: TCP
-    - name: metrics
-      port: 9090
-      targetPort: 9090
-      protocol: TCP
-  
+
+  # Session affinity for stateful connections
   sessionAffinity: ClientIP
   sessionAffinityConfig:
     clientIP:
-      timeoutSeconds: 3600
+      timeoutSeconds: 10800
 
 ---
-# Service (LoadBalancer for external access)
-apiVersion: v1
-kind: Service
+# Ingress for external access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
-  name: driving-school-lb
-  namespace: driving-school
+  name: driving-school-manager-ingress
+  namespace: driving-school-manager
   labels:
-    app: driving-school
-    service-type: external
+    app: driving-school-manager
   annotations:
-    description: "LoadBalancer service for external access"
-    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
 spec:
-  type: LoadBalancer
-  selector:
-    app: driving-school
-    tier: application
-  
-  ports:
-    - name: http
-      port: 80
-      targetPort: 4000
-      protocol: TCP
-    - name: https
-      port: 443
-      targetPort: 4000
-      protocol: TCP
-  
-  externalTrafficPolicy: Local
-  sessionAffinity: ClientIP
+  # TLS configuration
+  tls:
+    - hosts:
+        - driving-school-manager.example.com
+      secretName: driving-school-tls
+
+  # Ingress rules
+  rules:
+    - host: driving-school-manager.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: driving-school-manager
+                port:
+                  number: 4000
 
 ---
-# HorizontalPodAutoscaler (Auto-scaling)
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
+# Service Monitor for Prometheus (optional)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
 metadata:
-  name: driving-school-hpa
-  namespace: driving-school
+  name: driving-school-manager
+  namespace: driving-school-manager
   labels:
-    app: driving-school
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: driving-school-app
-  
-  minReplicas: 2
-  maxReplicas: 10
-  
-  # CPU-based scaling
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70    # Scale up when CPU > 70%
-    
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 80    # Scale up when memory > 80%
-  
-  behavior:
-    scaleUp:
-      stabilizationWindowSeconds: 60
-      policies:
-        - type: Percent
-          percent: 100               # Double the replicas
-          periodSeconds: 60
-    
-    scaleDown:
-      stabilizationWindowSeconds: 300
-      policies:
-        - type: Percent
-          percent: 50                # Reduce by 50%
-          periodSeconds: 60
+    app: driving-school-manager
 
----
-# PodDisruptionBudget (PDB)
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: driving-school-pdb
-  namespace: driving-school
-  labels:
-    app: driving-school
 spec:
-  minAvailable: 1
   selector:
     matchLabels:
-      app: driving-school
-      tier: application
-  unhealthyPodEvictionPolicy: AlwaysAllow
+      app: driving-school-manager
+
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics
