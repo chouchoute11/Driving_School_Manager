@@ -206,12 +206,105 @@ jobs:
         shell: bash
 
   # ============================================
+  # SLACK NOTIFICATIONS
+  # ============================================
+  notify-slack:
+    runs-on: ubuntu-latest
+    name: Slack Notification
+    needs: [ lint, test, build, security, health-check ]
+    if: always()
+    
+    steps:
+      - name: Determine build status
+        id: status
+        run: |
+          if [ "${{ needs.lint.result }}" = "failure" ] || \
+             [ "${{ needs.test.result }}" = "failure" ] || \
+             [ "${{ needs.build.result }}" = "failure" ] || \
+             [ "${{ needs.security.result }}" = "failure" ]; then
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "color=danger" >> $GITHUB_OUTPUT
+            echo "emoji=❌" >> $GITHUB_OUTPUT
+          else
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "color=good" >> $GITHUB_OUTPUT
+            echo "emoji=✅" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          webhook-url: ${{ secrets.SLACK_SECRET }}
+          payload: |
+            {
+              "attachments": [
+                {
+                  "color": "${{ steps.status.outputs.color }}",
+                  "title": "${{ steps.status.outputs.emoji }} CI/CD Pipeline - ${{ steps.status.outputs.status }}",
+                  "text": "Build ${{ steps.status.outputs.status }} for ${{ github.repository }}",
+                  "fields": [
+                    {
+                      "title": "Repository",
+                      "value": "<${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}>",
+                      "short": true
+                    },
+                    {
+                      "title": "Branch",
+                      "value": "${{ github.ref_name }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Lint",
+                      "value": "${{ needs.lint.result }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Test",
+                      "value": "${{ needs.test.result }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Build",
+                      "value": "${{ needs.build.result }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Security",
+                      "value": "${{ needs.security.result }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Health Check",
+                      "value": "${{ needs.health-check.result }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Commit",
+                      "value": "<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>",
+                      "short": true
+                    },
+                    {
+                      "title": "Author",
+                      "value": "${{ github.actor }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Message",
+                      "value": "${{ github.event.head_commit.message }}",
+                      "short": false
+                    }
+                  ]
+                }
+              ]
+            }
+
+  # ============================================
   # BUILD SUMMARY
   # ============================================
   summary:
     runs-on: ubuntu-latest
     name: Build Summary
-    needs: [ lint, test, build, security, health-check ]
+    needs: [ lint, test, build, security, health-check, notify-slack ]
     if: always()
     
     steps:

@@ -256,20 +256,20 @@ jobs:
           fi
       
       - name: Send Slack notification
-        if: env.SLACK_WEBHOOK != ''
-        uses: slackapi/slack-github-action@v1
+        uses: slackapi/slack-github-action@v1.24.0
         with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK }}
+          webhook-url: ${{ secrets.SLACK_SECRET }}
           payload: |
             {
               "attachments": [
                 {
                   "color": "${{ steps.status.outputs.color }}",
                   "title": "${{ steps.status.outputs.emoji }} CI/CD Pipeline - ${{ steps.status.outputs.status }}",
+                  "text": "Build ${{ steps.status.outputs.status }} for ${{ github.repository }}",
                   "fields": [
                     {
                       "title": "Repository",
-                      "value": "${{ github.repository }}",
+                      "value": "<${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}>",
                       "short": true
                     },
                     {
@@ -304,19 +304,23 @@ jobs:
                     },
                     {
                       "title": "Commit",
-                      "value": "<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>"
+                      "value": "<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>",
+                      "short": true
                     },
                     {
                       "title": "Author",
                       "value": "${{ github.actor }}",
                       "short": true
+                    },
+                    {
+                      "title": "Message",
+                      "value": "${{ github.event.head_commit.message }}",
+                      "short": false
                     }
                   ]
                 }
               ]
             }
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
       
       - name: Comment on PR with results
         if: github.event_name == 'pull_request'
