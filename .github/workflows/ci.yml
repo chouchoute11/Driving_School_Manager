@@ -208,49 +208,87 @@ jobs:
   # ============================================
   # SLACK NOTIFICATIONS
   # ============================================
+  # SLACK NOTIFICATIONS
+  # ============================================
   notify-slack:
     runs-on: ubuntu-latest
-    name: Slack Notification
+    name: Notify Slack (All Conditions)
     needs: [ lint, test, build, security, health-check ]
     if: always()
     
     steps:
-      - name: Determine build status
-        id: status
-        run: |
-          if [ "${{ needs.lint.result }}" = "failure" ] || \
-             [ "${{ needs.test.result }}" = "failure" ] || \
-             [ "${{ needs.build.result }}" = "failure" ] || \
-             [ "${{ needs.security.result }}" = "failure" ]; then
-            echo "status=failure" >> $GITHUB_OUTPUT
-            echo "color=danger" >> $GITHUB_OUTPUT
-            echo "emoji=❌" >> $GITHUB_OUTPUT
-          else
-            echo "status=success" >> $GITHUB_OUTPUT
-            echo "color=good" >> $GITHUB_OUTPUT
-            echo "emoji=✅" >> $GITHUB_OUTPUT
-          fi
+      - uses: actions/checkout@v4
       
-      - name: Send Slack notification
-        uses: slackapi/slack-github-action@v1.24.0
+      - name: Download test coverage artifacts
+        uses: actions/download-artifact@v4
         with:
-          webhook-url: ${{ secrets.SLACK_SECRET }}
-          payload: |
+          path: artifacts
+        continue-on-error: true
+      
+      - name: Notify Slack (All Conditions)
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_SECRET }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK" ]; then
+            STATUS="${{ job.status }}"
+            BRANCH="${{ github.ref_name }}"
+            AUTHOR="${{ github.actor }}"
+            WORKFLOW="${{ github.workflow }}"
+            COMMIT="${{ github.sha }}"
+            RUN_ID="${{ github.run_id }}"
+            REPO="${{ github.repository }}"
+            SERVER_URL="${{ github.server_url }}"
+            
+            # Determine emoji based on job results
+            if [ "${{ needs.lint.result }}" = "failure" ] || \
+               [ "${{ needs.test.result }}" = "failure" ] || \
+               [ "${{ needs.build.result }}" = "failure" ] || \
+               [ "${{ needs.security.result }}" = "failure" ]; then
+              EMOJI=":x:"
+              COLOR="danger"
+              OVERALL_STATUS="failure"
+            else
+              EMOJI=":white_check_mark:"
+              COLOR="good"
+              OVERALL_STATUS="success"
+            fi
+            
+            # Extract Jest test summary from coverage report
+            TEST_RESULTS=$(find artifacts -name "lcov-report" -type d 2>/dev/null | head -1)
+            if [ -f "$TEST_RESULTS/index.html" ]; then
+              TEST_COUNT=$(grep -oP '(?<=<span class="strong">)[0-9]+(?=</span>)' "$TEST_RESULTS/index.html" | head -n 1)
+            else
+              TEST_COUNT="Unknown"
+            fi
+            
+            # Extract coverage percentage
+            if [ -f "$TEST_RESULTS/index.html" ]; then
+              COVERAGE=$(grep -oP 'All files[ ]*\|\s*\K[\d.]+' "$TEST_RESULTS/index.html" | head -n 1)
+            else
+              COVERAGE="Unknown"
+            fi
+            
+            # Default values if not found
+            [ -z "$TEST_COUNT" ] && TEST_COUNT="N/A"
+            [ -z "$COVERAGE" ] && COVERAGE="N/A"
+            
+            # Build Slack message payload
+            PAYLOAD=$(cat <<EOF
             {
               "attachments": [
                 {
-                  "color": "${{ steps.status.outputs.color }}",
-                  "title": "${{ steps.status.outputs.emoji }} CI/CD Pipeline - ${{ steps.status.outputs.status }}",
-                  "text": "Build ${{ steps.status.outputs.status }} for ${{ github.repository }}",
+                  "color": "$COLOR",
+                  "title": "$EMOJI CI Pipeline - $OVERALL_STATUS",
+                  "text": "Build $OVERALL_STATUS for $REPO",
                   "fields": [
                     {
-                      "title": "Repository",
-                      "value": "<${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}>",
+                      "title": "Workflow",
+                      "value": "$WORKFLOW",
                       "short": true
                     },
                     {
                       "title": "Branch",
-                      "value": "${{ github.ref_name }}",
+                      "value": "$BRANCH",
                       "short": true
                     },
                     {
@@ -259,7 +297,7 @@ jobs:
                       "short": true
                     },
                     {
-                      "title": "Test",
+                      "title": "Tests",
                       "value": "${{ needs.test.result }}",
                       "short": true
                     },
@@ -274,29 +312,49 @@ jobs:
                       "short": true
                     },
                     {
-                      "title": "Health Check",
-                      "value": "${{ needs.health-check.result }}",
+                      "title": "Test Count",
+                      "value": "$TEST_COUNT",
                       "short": true
                     },
                     {
-                      "title": "Commit",
-                      "value": "<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>",
+                      "title": "Coverage",
+                      "value": "$COVERAGE%",
                       "short": true
                     },
                     {
                       "title": "Author",
-                      "value": "${{ github.actor }}",
+                      "value": "$AUTHOR",
+                      "short": true
+                    },
+                    {
+                      "title": "Commit",
+                      "value": "<$SERVER_URL/$REPO/commit/$COMMIT|${COMMIT:0:8}>",
                       "short": true
                     },
                     {
                       "title": "Message",
                       "value": "${{ github.event.head_commit.message }}",
                       "short": false
+                    },
+                    {
+                      "title": "View Logs",
+                      "value": "<$SERVER_URL/$REPO/actions/runs/$RUN_ID|Click here>",
+                      "short": false
                     }
                   ]
                 }
               ]
             }
+            EOF
+            )
+            
+            # Send to Slack
+            curl -X POST -H 'Content-type: application/json' \
+              --data "$PAYLOAD" \
+              "$SLACK_WEBHOOK" || true
+          else
+            echo "⚠️ No Slack webhook configured. Set SLACK_SECRET in repository secrets."
+          fi
 
   # ============================================
   # BUILD SUMMARY
