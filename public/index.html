@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Driving School Lesson Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #0d6efd;
+            --secondary-color: #6c757d;
+        }
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .navbar-custom {
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 2px solid var(--primary-color);
+        }
+        .card {
+            border: none;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+        .card-header {
+            background: linear-gradient(135deg, var(--primary-color), #0dcaf0);
+            color: white;
+            border-radius: 10px 10px 0 0;
+            border: none;
+        }
+        .btn-primary, .btn-success, .btn-info {
+            border: none;
+            border-radius: 6px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover, .btn-success:hover, .btn-info:hover {
+            transform: scale(1.05);
+        }
+        .nav-tabs .nav-link.active {
+            border-bottom: 3px solid var(--primary-color);
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .stat-card h3 {
+            color: var(--primary-color);
+            font-weight: bold;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .status-active {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status-scheduled {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        .status-completed {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status-cancelled {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .form-control, .form-select {
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+        }
+        .form-control:focus, .form-select:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark navbar-custom sticky-top">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="#"><i class="fas fa-graduation-cap text-primary me-2"></i>Driving School Manager</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="#health"><i class="fas fa-heartbeat"></i> Health Status</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid py-4">
+        <!-- Header Stats -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h3 id="totalStudents">0</h3>
+                    <p class="text-muted">Total Students</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h3 id="totalInstructors">0</h3>
+                    <p class="text-muted">Total Instructors</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h3 id="upcomingLessons">0</h3>
+                    <p class="text-muted">Upcoming Lessons</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h3 id="completedLessons">0</h3>
+                    <p class="text-muted">Completed Lessons</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Tabs -->
+        <div class="row">
+            <div class="col-lg-12">
+                <ul class="nav nav-tabs mb-4 bg-white p-3 rounded" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="lessons-tab" data-bs-toggle="tab" data-bs-target="#lessons" type="button">
+                            <i class="fas fa-calendar"></i> Lessons
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="students-tab" data-bs-toggle="tab" data-bs-target="#students" type="button">
+                            <i class="fas fa-users"></i> Students
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="instructors-tab" data-bs-toggle="tab" data-bs-target="#instructors" type="button">
+                            <i class="fas fa-chalkboard-user"></i> Instructors
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="reports-tab" data-bs-toggle="tab" data-bs-target="#reports" type="button">
+                            <i class="fas fa-chart-bar"></i> Reports
+                        </button>
+                    </li>
+                </ul>
+
+                <!-- Tab Content -->
+                <div class="tab-content">
+                    <!-- Lessons Tab -->
+                    <div class="tab-pane fade show active" id="lessons">
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-plus-circle"></i> Schedule New Lesson</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="lessonForm">
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">Student</label>
+                                            <select id="lessonStudentId" class="form-select" required>
+                                                <option value="">Select Student</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">Instructor</label>
+                                            <select id="lessonInstructorId" class="form-select" required>
+                                                <option value="">Select Instructor</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">Lesson Date & Time</label>
+                                            <input type="datetime-local" id="lessonDate" class="form-control" required>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">Duration (minutes)</label>
+                                            <input type="number" id="lessonDuration" class="form-control" min="30" max="180" placeholder="60" required>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Notes</label>
+                                        <textarea id="lessonNotes" class="form-control" rows="3" placeholder="Additional notes for the lesson"></textarea>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary"><i class="fas fa-calendar-plus"></i> Schedule Lesson</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-list"></i> All Lessons</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="lessonsList" class="list-group">
+                                    <div class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin"></i> Loading lessons...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Students Tab -->
+                    <div class="tab-pane fade" id="students">
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-user-plus"></i> Register New Student</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="studentForm">
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">First Name</label>
+                                            <input type="text" id="studentFirstName" class="form-control" required>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">Last Name</label>
+                                            <input type="text" id="studentLastName" class="form-control" required>
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">Email</label>
+                                            <input type="email" id="studentEmail" class="form-control">
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">Phone</label>
+                                            <input type="tel" id="studentPhone" class="form-control">
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">License Class</label>
+                                        <select id="studentLicenseClass" class="form-select">
+                                            <option value="">Select License Class</option>
+                                            <option value="A">A - Motorcycles</option>
+                                            <option value="B">B - Cars</option>
+                                            <option value="C">C - Trucks</option>
+                                        </select>
+                                    </div>
+                                    <button type="submit" class="btn btn-success"><i class="fas fa-user-check"></i> Register Student</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-list"></i> Student List</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="studentsList" class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Email</th>
+                                                <th>Phone</th>
+                                                <th>License Class</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="studentsTableBody">
+                                            <tr><td colspan="5" class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin"></i> Loading students...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Instructors Tab -->
+                    <div class="tab-pane fade" id="instructors">
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-user-tie"></i> Register New Instructor</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="instructorForm">
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">First Name</label>
+                                            <input type="text" id="instructorFirstName" class="form-control" required>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">Last Name</label>
+                                            <input type="text" id="instructorLastName" class="form-control" required>
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">Email</label>
+                                            <input type="email" id="instructorEmail" class="form-control">
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">Phone</label>
+                                            <input type="tel" id="instructorPhone" class="form-control">
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">License Number</label>
+                                        <input type="text" id="instructorLicenseNumber" class="form-control">
+                                    </div>
+                                    <button type="submit" class="btn btn-success"><i class="fas fa-user-tie"></i> Register Instructor</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-list"></i> Instructor List</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="instructorsList" class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Email</th>
+                                                <th>Phone</th>
+                                                <th>License Number</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="instructorsTableBody">
+                                            <tr><td colspan="5" class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin"></i> Loading instructors...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Reports Tab -->
+                    <div class="tab-pane fade" id="reports">
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-file-export"></i> Generate Report</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="reportForm">
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">Report Type</label>
+                                            <select id="reportType" class="form-select" required>
+                                                <option value="">Select Report Type</option>
+                                                <option value="attendance">Attendance Report</option>
+                                                <option value="performance">Performance Report</option>
+                                                <option value="financial">Financial Report</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">Student (Optional)</label>
+                                            <select id="reportStudentId" class="form-select">
+                                                <option value="">All Students</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">Period Start</label>
+                                            <input type="date" id="reportPeriodStart" class="form-control" required>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label">Period End</label>
+                                            <input type="date" id="reportPeriodEnd" class="form-control" required>
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn btn-info"><i class="fas fa-chart-bar"></i> Generate Report</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-list"></i> Reports History</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="reportsList" class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>Type</th>
+                                                <th>Student</th>
+                                                <th>Period</th>
+                                                <th>Created</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="reportsTableBody">
+                                            <tr><td colspan="4" class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin"></i> Loading reports...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const API_BASE = '/api';
+        let studentsCache = [];
+        let instructorsCache = [];
+
+        // ============================================
+        // UTILITY FUNCTIONS
+        // ============================================
+
+        async function apiCall(endpoint, method = 'GET', data = null) {
+            const options = {
+                method,
+                headers: { 'Content-Type': 'application/json' }
+            };
+            if (data) options.body = JSON.stringify(data);
+            
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, options);
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'API Error');
+                }
+                return await response.json();
+            } catch (error) {
+                console.error(`API Error: ${error.message}`);
+                alert(`Error: ${error.message}`);
+                throw error;
+            }
+        }
+
+        function formatDate(dateString) {
+            return new Date(dateString).toLocaleDateString('en-US', { 
+                month: 'short', day: 'numeric', year: 'numeric' 
+            });
+        }
+
+        function formatDateTime(dateString) {
+            return new Date(dateString).toLocaleString('en-US', { 
+                month: 'short', day: 'numeric', year: 'numeric', 
+                hour: '2-digit', minute: '2-digit'
+            });
+        }
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadLessons();
+            loadStudents();
+            loadInstructors();
+            loadReports();
+            updateStats();
+            setInterval(updateStats, 30000); // Update stats every 30 seconds
+        });
+
+        // ============================================
+        // FORM SUBMISSIONS
+        // ============================================
+
+        document.getElementById('lessonForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = {
+                student_id: parseInt(document.getElementById('lessonStudentId').value),
+                instructor_id: parseInt(document.getElementById('lessonInstructorId').value),
+                lesson_date: document.getElementById('lessonDate').value,
+                duration: parseInt(document.getElementById('lessonDuration').value),
+                notes: document.getElementById('lessonNotes').value || null
+            };
+            
+            try {
+                await apiCall('/lessons', 'POST', formData);
+                alert('Lesson scheduled successfully!');
+                document.getElementById('lessonForm').reset();
+                loadLessons();
+                updateStats();
+            } catch (error) {
+                // Error already handled by apiCall
+            }
+        });
+
+        document.getElementById('studentForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = {
+                first_name: document.getElementById('studentFirstName').value,
+                last_name: document.getElementById('studentLastName').value,
+                email: document.getElementById('studentEmail').value || null,
+                phone: document.getElementById('studentPhone').value || null,
+                license_class: document.getElementById('studentLicenseClass').value || null
+            };
+            
+            try {
+                await apiCall('/students', 'POST', formData);
+                alert('Student registered successfully!');
+                document.getElementById('studentForm').reset();
+                loadStudents();
+                updateStats();
+            } catch (error) {
+                // Error already handled by apiCall
+            }
+        });
+
+        document.getElementById('instructorForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = {
+                first_name: document.getElementById('instructorFirstName').value,
+                last_name: document.getElementById('instructorLastName').value,
+                email: document.getElementById('instructorEmail').value || null,
+                phone: document.getElementById('instructorPhone').value || null,
+                license_number: document.getElementById('instructorLicenseNumber').value || null
+            };
+            
+            try {
+                await apiCall('/instructors', 'POST', formData);
+                alert('Instructor registered successfully!');
+                document.getElementById('instructorForm').reset();
+                loadInstructors();
+                updateStats();
+            } catch (error) {
+                // Error already handled by apiCall
+            }
+        });
+
+        document.getElementById('reportForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = {
+                type: document.getElementById('reportType').value,
+                student_id: document.getElementById('reportStudentId').value || null,
+                period_start: document.getElementById('reportPeriodStart').value,
+                period_end: document.getElementById('reportPeriodEnd').value,
+                content: {}
+            };
+            
+            try {
+                await apiCall('/reports', 'POST', formData);
+                alert('Report generated successfully!');
+                document.getElementById('reportForm').reset();
+                loadReports();
+            } catch (error) {
+                // Error already handled by apiCall
+            }
+        });
+
+        // ============================================
+        // DATA LOADING FUNCTIONS
+        // ============================================
+
+        async function loadLessons() {
+            try {
+                const result = await apiCall('/lessons?limit=100');
+                const lessons = result.data || [];
+                const lessonsList = document.getElementById('lessonsList');
+                
+                if (lessons.length === 0) {
+                    lessonsList.innerHTML = '<div class="text-center text-muted py-4">No lessons scheduled yet</div>';
+                    return;
+                }
+
+                lessonsList.innerHTML = lessons.map(lesson => {
+                    const student = studentsCache.find(s => s.id === lesson.student_id);
+                    const instructor = instructorsCache.find(i => i.id === lesson.instructor_id);
+                    return `
+                        <div class="card mb-2">
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h6>${student?.first_name} ${student?.last_name}</h6>
+                                        <small class="text-muted">Instructor: ${instructor?.first_name} ${instructor?.last_name}</small>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <small><i class="fas fa-calendar"></i> ${formatDateTime(lesson.lesson_date)}</small><br>
+                                        <small><i class="fas fa-hourglass"></i> ${lesson.duration} mins</small>
+                                    </div>
+                                    <div class="col-md-3 text-end">
+                                        <span class="status-badge status-${lesson.status}">${lesson.status}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (error) {
+                // Error already handled
+            }
+        }
+
+        async function loadStudents() {
+            try {
+                const result = await apiCall('/students?limit=100');
+                studentsCache = result.data || [];
+                
+                const tbody = document.getElementById('studentsTableBody');
+                if (studentsCache.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No students registered</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = studentsCache.map(student => `
+                    <tr>
+                        <td>${student.first_name} ${student.last_name}</td>
+                        <td>${student.email || '-'}</td>
+                        <td>${student.phone || '-'}</td>
+                        <td>${student.license_class || '-'}</td>
+                        <td><span class="status-badge status-${student.status}">${student.status}</span></td>
+                    </tr>
+                `).join('');
+
+                // Update selects
+                updateSelectOptions('lessonStudentId', studentsCache);
+                updateSelectOptions('reportStudentId', studentsCache);
+            } catch (error) {
+                // Error already handled
+            }
+        }
+
+        async function loadInstructors() {
+            try {
+                const result = await apiCall('/instructors?limit=100');
+                instructorsCache = result.data || [];
+                
+                const tbody = document.getElementById('instructorsTableBody');
+                if (instructorsCache.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No instructors registered</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = instructorsCache.map(instructor => `
+                    <tr>
+                        <td>${instructor.first_name} ${instructor.last_name}</td>
+                        <td>${instructor.email || '-'}</td>
+                        <td>${instructor.phone || '-'}</td>
+                        <td>${instructor.license_number || '-'}</td>
+                        <td><span class="status-badge status-${instructor.status}">${instructor.status}</span></td>
+                    </tr>
+                `).join('');
+
+                // Update selects
+                updateSelectOptions('lessonInstructorId', instructorsCache);
+            } catch (error) {
+                // Error already handled
+            }
+        }
+
+        async function loadReports() {
+            try {
+                const result = await apiCall('/reports');
+                const reports = result.data || [];
+                
+                const tbody = document.getElementById('reportsTableBody');
+                if (reports.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No reports generated</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = reports.map(report => {
+                    const student = studentsCache.find(s => s.id === report.student_id);
+                    return `
+                        <tr>
+                            <td>${report.type}</td>
+                            <td>${student ? `${student.first_name} ${student.last_name}` : 'All'}</td>
+                            <td>${formatDate(report.period_start)} to ${formatDate(report.period_end)}</td>
+                            <td>${formatDateTime(report.created_at)}</td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (error) {
+                // Error already handled
+            }
+        }
+
+        async function updateStats() {
+            try {
+                const [lessonsResult, studentsResult, instructorsResult] = await Promise.all([
+                    apiCall('/lessons?limit=1000'),
+                    apiCall('/students?limit=1000'),
+                    apiCall('/instructors?limit=1000')
+                ]);
+
+                const lessons = lessonsResult.data || [];
+                const students = studentsResult.data || [];
+                const instructors = instructorsResult.data || [];
+
+                document.getElementById('totalStudents').textContent = students.length;
+                document.getElementById('totalInstructors').textContent = instructors.length;
+                document.getElementById('upcomingLessons').textContent = lessons.filter(l => l.status === 'scheduled').length;
+                document.getElementById('completedLessons').textContent = lessons.filter(l => l.status === 'completed').length;
+            } catch (error) {
+                console.error('Error updating stats:', error);
+            }
+        }
+
+        function updateSelectOptions(selectId, items) {
+            const select = document.getElementById(selectId);
+            const currentValue = select.value;
+            const options = [`<option value="">Select...</option>`];
+            
+            items.forEach(item => {
+                options.push(`<option value="${item.id}">${item.first_name} ${item.last_name}</option>`);
+            });
+            
+            select.innerHTML = options.join('');
+            select.value = currentValue;
+        }
+    </script>
+</body>
+</html>
+                
+                <!-- Add Note Form -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Create New Note</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="noteForm">
+                            <div class="mb-3">
+                                <input type="text" class="form-control" id="noteTitle" placeholder="Note Title" required>
+                            </div>
+                            <div class="mb-3">
+                                <textarea class="form-control" id="noteContent" rows="4" placeholder="Note Content" required></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-plus"></i> Add Note
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Notes List -->
+                <div id="notesList">
+                    <!-- Notes will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let editingNoteId = null;
+
+        // Load notes on page load
+        document.addEventListener('DOMContentLoaded', loadNotes);
+
+        // Form submission
+        document.getElementById('noteForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const title = document.getElementById('noteTitle').value;
+            const content = document.getElementById('noteContent').value;
+            
+            if (editingNoteId) {
+                await updateNote(editingNoteId, title, content);
+            } else {
+                await createNote(title, content);
+            }
+            
+            resetForm();
+            loadNotes();
+        });
+
+        async function loadNotes() {
+            try {
+                const response = await fetch('/api/notes');
+                const notes = await response.json();
+                displayNotes(notes);
+            } catch (error) {
+                console.error('Error loading notes:', error);
+            }
+        }
+
+        function displayNotes(notes) {
+            const notesList = document.getElementById('notesList');
+            
+            if (notes.length === 0) {
+                notesList.innerHTML = '<div class="text-center text-muted">No notes yet. Create your first note!</div>';
+                return;
+            }
+            
+            notesList.innerHTML = notes.map(note => `
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">${note.title}</h5>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary" onclick="editNote(${note.id}, '${note.title.replace(/'/g, "\\'")}', '${note.content.replace(/'/g, "\\'").replace(/\n/g, '\\n')}')">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteNote(${note.id})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-text">${note.content.replace(/\n/g, '<br>')}</p>
+                        <small class="text-muted">Created: ${new Date(note.created_at).toLocaleString()}</small>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function createNote(title, content) {
+            try {
+                const response = await fetch('/api/notes', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ title, content }),
+                });
+                
+                if (response.ok) {
+                    showAlert('Note created successfully!', 'success');
+                }
+            } catch (error) {
+                showAlert('Error creating note', 'danger');
+                console.error('Error creating note:', error);
+            }
+        }
+
+        async function updateNote(id, title, content) {
+            try {
+                const response = await fetch(`/api/notes/${id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ title, content }),
+                });
+                
+                if (response.ok) {
+                    showAlert('Note updated successfully!', 'success');
+                }
+            } catch (error) {
+                showAlert('Error updating note', 'danger');
+                console.error('Error updating note:', error);
+            }
+        }
+
+        async function deleteNote(id) {
+            if (confirm('Are you sure you want to delete this note?')) {
+                try {
+                    const response = await fetch(`/api/notes/${id}`, {
+                        method: 'DELETE',
+                    });
+                    
+                    if (response.ok) {
+                        showAlert('Note deleted successfully!', 'success');
+                        loadNotes();
+                    }
+                } catch (error) {
+                    showAlert('Error deleting note', 'danger');
+                    console.error('Error deleting note:', error);
+                }
+            }
+        }
+
+        function editNote(id, title, content) {
+            document.getElementById('noteTitle').value = title;
+            document.getElementById('noteContent').value = content;
+            editingNoteId = id;
+            
+            // Change button text
+            document.querySelector('#noteForm button').innerHTML = '<i class="fas fa-save"></i> Update Note';
+        }
+
+        function resetForm() {
+            document.getElementById('noteForm').reset();
+            editingNoteId = null;
+            document.querySelector('#noteForm button').innerHTML = '<i class="fas fa-plus"></i> Add Note';
+        }
+
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.row'));
+            
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

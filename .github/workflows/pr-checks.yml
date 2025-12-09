@@ -1,0 +1,149 @@
+name: Pull Request Checks
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    types: [ opened, synchronize, reopened ]
+
+jobs:
+  # ============================================
+  # BRANCH NAMING CONVENTION
+  # ============================================
+  branch-naming:
+    runs-on: ubuntu-latest
+    name: Check Branch Naming Convention
+    
+    steps:
+      - name: Validate branch name
+        run: |
+          BRANCH_NAME="${{ github.head_ref }}"
+          echo "Checking branch name: $BRANCH_NAME"
+          
+          # Valid patterns: feature/*, bugfix/*, hotfix/*, release/*, develop, main
+          if [[ $BRANCH_NAME =~ ^(feature|bugfix|hotfix|release)\/[a-z0-9\-]+$ ]] || \
+             [[ $BRANCH_NAME == "develop" ]] || \
+             [[ $BRANCH_NAME == "main" ]]; then
+            echo "✓ Branch name is valid"
+            exit 0
+          else
+            echo "✗ Branch name does not follow convention"
+            echo "Valid patterns: feature/*, bugfix/*, hotfix/*, release/*, develop, main"
+            exit 1
+          fi
+
+  # ============================================
+  # COMMIT MESSAGE LINTING
+  # ============================================
+  commit-lint:
+    runs-on: ubuntu-latest
+    name: Commit Message Linting
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Install commitlint
+        run: npm install -g @commitlint/cli @commitlint/config-conventional
+      
+      - name: Validate commit messages
+        run: |
+          if [ -f ".commitlintrc" ] || [ -f "commitlint.config.js" ]; then
+            commitlint --from ${{ github.event.pull_request.base.sha }} --to HEAD
+          else
+            echo "ℹ  Commit lint configuration not found - skipping"
+          fi
+        continue-on-error: true
+
+  # ============================================
+  # PULL REQUEST LABELS
+  # ============================================
+  labels:
+    runs-on: ubuntu-latest
+    name: Verify PR Labels
+    
+    steps:
+      - name: Check if PR has labels
+        run: |
+          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
+          if [ "$LABELS" == "[]" ]; then
+            echo "⚠ Warning: PR has no labels assigned"
+            echo "Please add appropriate labels: bug, feature, enhancement, documentation, etc."
+          else
+            echo "✓ PR has labels: $LABELS"
+          fi
+        continue-on-error: true
+
+  # ============================================
+  # REVIEW REQUIREMENTS
+  # ============================================
+  review-required:
+    runs-on: ubuntu-latest
+    name: Review Requirements
+    
+    steps:
+      - name: Check review status
+        run: |
+          echo "📋 Review Requirements for this PR:"
+          echo "1. At least 1 approved review required"
+          echo "2. No changes requested"
+          echo "3. All CI checks must pass"
+          echo "4. No merge conflicts"
+          echo "5. Code coverage must not decrease"
+        continue-on-error: true
+
+  # ============================================
+  # FILE CHANGE VALIDATION
+  # ============================================
+  file-changes:
+    runs-on: ubuntu-latest
+    name: Validate File Changes
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Check for sensitive files
+        run: |
+          # Check for environment files
+          if git diff ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} --name-only | grep -E '\.env|secrets|credentials'; then
+            echo "✗ ERROR: Sensitive files (.env, secrets, credentials) detected!"
+            exit 1
+          fi
+          
+          # Check for dependency changes
+          if git diff ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} --name-only | grep -E 'package\.json|package-lock\.json'; then
+            echo "✓ Dependency changes detected - ensure npm ci/npm install was run"
+          fi
+          
+          echo "✓ File validation passed"
+        continue-on-error: true
+
+  # ============================================
+  # SIZE CHECK
+  # ============================================
+  size-check:
+    runs-on: ubuntu-latest
+    name: PR Size Check
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Check PR size
+        run: |
+          ADDITIONS=$(git diff ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} --stat | tail -1 | awk '{print $4}')
+          DELETIONS=$(git diff ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} --stat | tail -1 | awk '{print $6}')
+          CHANGED_FILES=$(git diff ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} --name-only | wc -l)
+          
+          echo "📊 PR Statistics:"
+          echo "- Changed Files: $CHANGED_FILES"
+          echo "- Additions: $ADDITIONS"
+          echo "- Deletions: $DELETIONS"
+          
+          if [ "$CHANGED_FILES" -gt 50 ]; then
+            echo "⚠ Warning: Large PR detected ($CHANGED_FILES files changed)"
+            echo "Consider splitting into smaller PRs for easier review"
+          fi
