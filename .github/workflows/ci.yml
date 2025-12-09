@@ -226,135 +226,55 @@ jobs:
         continue-on-error: true
       
       - name: Notify Slack (All Conditions)
+        if: always()
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_SECRET }}
         run: |
-          if [ -n "$SLACK_WEBHOOK" ]; then
-            STATUS="${{ job.status }}"
-            BRANCH="${{ github.ref_name }}"
-            AUTHOR="${{ github.actor }}"
-            WORKFLOW="${{ github.workflow }}"
-            COMMIT="${{ github.sha }}"
-            RUN_ID="${{ github.run_id }}"
-            REPO="${{ github.repository }}"
-            SERVER_URL="${{ github.server_url }}"
-            
-            # Determine emoji based on job results
-            if [ "${{ needs.lint.result }}" = "failure" ] || \
-               [ "${{ needs.test.result }}" = "failure" ] || \
-               [ "${{ needs.build.result }}" = "failure" ] || \
-               [ "${{ needs.security.result }}" = "failure" ]; then
-              EMOJI=":x:"
-              COLOR="danger"
-              OVERALL_STATUS="failure"
-            else
-              EMOJI=":white_check_mark:"
-              COLOR="good"
-              OVERALL_STATUS="success"
-            fi
-            
-            # Extract Jest test summary from coverage report
-            TEST_RESULTS=$(find artifacts -name "lcov-report" -type d 2>/dev/null | head -1)
-            if [ -f "$TEST_RESULTS/index.html" ]; then
-              TEST_COUNT=$(grep -oP '(?<=<span class="strong">)[0-9]+(?=</span>)' "$TEST_RESULTS/index.html" | head -n 1)
-            else
-              TEST_COUNT="Unknown"
-            fi
-            
-            # Extract coverage percentage
-            if [ -f "$TEST_RESULTS/index.html" ]; then
-              COVERAGE=$(grep -oP 'All files[ ]*\|\s*\K[\d.]+' "$TEST_RESULTS/index.html" | head -n 1)
-            else
-              COVERAGE="Unknown"
-            fi
-            
-            # Default values if not found
-            [ -z "$TEST_COUNT" ] && TEST_COUNT="N/A"
-            [ -z "$COVERAGE" ] && COVERAGE="N/A"
-            
-            # Build Slack message payload
-            PAYLOAD=$(cat <<EOF
-            {
-              "attachments": [
-                {
-                  "color": "$COLOR",
-                  "title": "$EMOJI CI Pipeline - $OVERALL_STATUS",
-                  "text": "Build $OVERALL_STATUS for $REPO",
-                  "fields": [
-                    {
-                      "title": "Workflow",
-                      "value": "$WORKFLOW",
-                      "short": true
-                    },
-                    {
-                      "title": "Branch",
-                      "value": "$BRANCH",
-                      "short": true
-                    },
-                    {
-                      "title": "Lint",
-                      "value": "${{ needs.lint.result }}",
-                      "short": true
-                    },
-                    {
-                      "title": "Tests",
-                      "value": "${{ needs.test.result }}",
-                      "short": true
-                    },
-                    {
-                      "title": "Build",
-                      "value": "${{ needs.build.result }}",
-                      "short": true
-                    },
-                    {
-                      "title": "Security",
-                      "value": "${{ needs.security.result }}",
-                      "short": true
-                    },
-                    {
-                      "title": "Test Count",
-                      "value": "$TEST_COUNT",
-                      "short": true
-                    },
-                    {
-                      "title": "Coverage",
-                      "value": "$COVERAGE%",
-                      "short": true
-                    },
-                    {
-                      "title": "Author",
-                      "value": "$AUTHOR",
-                      "short": true
-                    },
-                    {
-                      "title": "Commit",
-                      "value": "<$SERVER_URL/$REPO/commit/$COMMIT|${COMMIT:0:8}>",
-                      "short": true
-                    },
-                    {
-                      "title": "Message",
-                      "value": "${{ github.event.head_commit.message }}",
-                      "short": false
-                    },
-                    {
-                      "title": "View Logs",
-                      "value": "<$SERVER_URL/$REPO/actions/runs/$RUN_ID|Click here>",
-                      "short": false
-                    }
-                  ]
-                }
-              ]
-            }
-            EOF
-            )
-            
-            # Send to Slack
-            curl -X POST -H 'Content-type: application/json' \
-              --data "$PAYLOAD" \
-              "$SLACK_WEBHOOK" || true
-          else
+          if [ -z "$SLACK_WEBHOOK" ]; then
             echo "⚠️ No Slack webhook configured. Set SLACK_SECRET in repository secrets."
+            exit 0
           fi
+          
+          # Determine build status
+          if [ "${{ needs.lint.result }}" = "failure" ] || \
+             [ "${{ needs.test.result }}" = "failure" ] || \
+             [ "${{ needs.build.result }}" = "failure" ] || \
+             [ "${{ needs.security.result }}" = "failure" ]; then
+            EMOJI="❌"
+            COLOR="danger"
+            OVERALL_STATUS="failure"
+          else
+            EMOJI="✅"
+            COLOR="good"
+            OVERALL_STATUS="success"
+          fi
+          
+          # Build and send Slack notification using JSON payload
+          PAYLOAD='{
+            "attachments": [
+              {
+                "color": "'$COLOR'",
+                "title": "'$EMOJI' CI Pipeline - '$OVERALL_STATUS'",
+                "text": "Build '$OVERALL_STATUS' for ${{ github.repository }}",
+                "fields": [
+                  {"title": "Workflow", "value": "${{ github.workflow }}", "short": true},
+                  {"title": "Branch", "value": "${{ github.ref_name }}", "short": true},
+                  {"title": "Lint", "value": "${{ needs.lint.result }}", "short": true},
+                  {"title": "Tests", "value": "${{ needs.test.result }}", "short": true},
+                  {"title": "Build", "value": "${{ needs.build.result }}", "short": true},
+                  {"title": "Security", "value": "${{ needs.security.result }}", "short": true},
+                  {"title": "Author", "value": "${{ github.actor }}", "short": true},
+                  {"title": "Commit", "value": "<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>", "short": true},
+                  {"title": "Message", "value": "${{ github.event.head_commit.message }}", "short": false},
+                  {"title": "View Logs", "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Click here>", "short": false}
+                ]
+              }
+            ]
+          }'
+          
+          curl -X POST -H 'Content-type: application/json' \
+            --data "$PAYLOAD" \
+            "$SLACK_WEBHOOK" || echo "Failed to send Slack notification"
 
   # ============================================
   # BUILD SUMMARY
