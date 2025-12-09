@@ -1,7 +1,7 @@
 {
   "name": "driving-school-lesson-manager",
   "version": "1.0.0",
-  "description": "Driving School Lesson Manager with DevOps Pipeline - Phase 1-3 Complete",
+  "description": "Driving School Lesson Manager with Complete DevOps Pipeline - Phases 1-5 Complete",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

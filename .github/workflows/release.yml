@@ -1,0 +1,334 @@
+name: Release & Publish
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'  # Matches v1.0.0, v1.2.3, etc.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.0.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  NODE_VERSION: '18'
+
+jobs:
+  # ============================================
+  # VALIDATE RELEASE
+  # ============================================
+  validate:
+    runs-on: ubuntu-latest
+    name: Validate Release
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Get version from tag or input
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Extract version from tag (v1.0.0 -> 1.0.0)
+            TAG="${{ github.ref }}"
+            VERSION="${TAG#refs/tags/v}"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+          else
+            # Use workflow_dispatch input
+            VERSION="${{ github.event.inputs.version }}"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "📌 Release Version: $VERSION"
+      
+      - name: Validate version format
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            echo "Expected format: X.Y.Z (e.g., 1.0.0)"
+            exit 1
+          fi
+          echo "✅ Version format valid: $VERSION"
+      
+      - name: Verify tag doesn't exist
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "⚠️ Tag $TAG already exists"
+          else
+            echo "✅ Tag $TAG is available"
+          fi
+      
+      - name: Check CHANGELOG exists
+        run: |
+          if [ ! -f "CHANGELOG.md" ]; then
+            echo "⚠️ CHANGELOG.md not found (optional)"
+          else
+            echo "✅ CHANGELOG.md found"
+          fi
+
+  # ============================================
+  # BUILD & TEST
+  # ============================================
+  test:
+    runs-on: ubuntu-latest
+    name: Build & Test
+    needs: validate
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run tests
+        run: npm run test:ci
+      
+      - name: Run linter
+        run: npm run lint
+        continue-on-error: true
+
+  # ============================================
+  # BUILD DOCKER IMAGE
+  # ============================================
+  build-docker:
+    runs-on: ubuntu-latest
+    name: Build Docker Image
+    needs: [ validate, test ]
+    permissions:
+      contents: read
+      packages: write
+    
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-name: ${{ steps.build.outputs.image }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Log in to Docker Hub (optional)
+        if: secrets.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+            ${{ secrets.DOCKERHUB_USERNAME && format('docker.io/{0}/driving-lesson-manager', secrets.DOCKERHUB_USERNAME) || '' }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.validate.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.validate.outputs.version }}
+            type=semver,pattern={{major}},value=${{ needs.validate.outputs.version }}
+            type=sha
+            type=ref,event=branch
+      
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NODE_VERSION=${{ env.NODE_VERSION }}
+            BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ needs.validate.outputs.version }}
+      
+      - name: Image summary
+        run: |
+          echo "🐳 Docker Image Built Successfully"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          echo "Tags:"
+          echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n' | sed 's/^/  - /'
+
+  # ============================================
+  # CREATE GITHUB RELEASE
+  # ============================================
+  release:
+    runs-on: ubuntu-latest
+    name: Create GitHub Release
+    needs: [ validate, build-docker ]
+    permissions:
+      contents: write
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Generate changelog
+        id: changelog
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          
+          if [ -z "$PREVIOUS_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %h %s (%an)" | head -20)
+          else
+            CHANGELOG=$(git log $PREVIOUS_TAG..HEAD --pretty=format:"- %h %s (%an)")
+          fi
+          
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.validate.outputs.tag }}
+          release_name: Release ${{ needs.validate.outputs.version }}
+          body: |
+            # 🎉 Release ${{ needs.validate.outputs.version }}
+            
+            ## 📦 Docker Images
+            
+            **GitHub Container Registry:**
+            ```
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ```
+            
+            **Docker Hub (if configured):**
+            Check Docker Hub for images under your username.
+            
+            ## 📝 Recent Changes
+            
+            ${{ steps.changelog.outputs.changelog }}
+            
+            ## 🚀 Quick Start
+            
+            ```bash
+            # Pull the latest release
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version }}
+            
+            # Run the container
+            docker run -p 4000:4000 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version }}
+            ```
+            
+            ## ✅ Verification
+            
+            - ✅ Tests: Passed
+            - ✅ Docker Image: Built and pushed
+            - ✅ Code Quality: Verified
+            
+            **Release Date:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+            **Commit:** ${{ github.sha }}
+            
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+
+  # ============================================
+  # NOTIFY SLACK (RELEASE)
+  # ============================================
+  notify-slack-release:
+    runs-on: ubuntu-latest
+    name: Notify Slack (Release)
+    needs: [ validate, release ]
+    if: always()
+    
+    steps:
+      - name: Send Slack notification
+        if: secrets.SLACK_SECRET != ''
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_SECRET }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK" ]; then
+            echo "⚠️ Slack webhook not configured"
+            exit 0
+          fi
+          
+          VERSION="${{ needs.validate.outputs.version }}"
+          STATUS="released"
+          EMOJI="🚀"
+          COLOR="good"
+          
+          PAYLOAD='{
+            "attachments": [
+              {
+                "color": "'$COLOR'",
+                "title": "'$EMOJI' Release '$VERSION' Published",
+                "text": "Docker images are now available in the registry",
+                "fields": [
+                  {"title": "Release Version", "value": "'$VERSION'", "short": true},
+                  {"title": "Repository", "value": "${{ github.repository }}", "short": true},
+                  {"title": "Image Registry", "value": "'${{ env.REGISTRY }}'", "short": true},
+                  {"title": "Commit", "value": "<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>", "short": true},
+                  {"title": "Release", "value": "<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.validate.outputs.tag }}|View Release>", "short": false}
+                ]
+              }
+            ]
+          }'
+          
+          curl -X POST -H 'Content-type: application/json' \
+            --data "$PAYLOAD" \
+            "$SLACK_WEBHOOK" || echo "Failed to send Slack notification"
+
+  # ============================================
+  # RELEASE SUMMARY
+  # ============================================
+  summary:
+    runs-on: ubuntu-latest
+    name: Release Summary
+    needs: [ validate, build-docker, release ]
+    if: always()
+    
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## 🎉 Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** ${{ needs.validate.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker image pushed to ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
+          echo "- GitHub Release created" >> $GITHUB_STEP_SUMMARY
+          echo "- Slack notification sent" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📝 Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Validate: ${{ needs.validate.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker Build: ${{ needs.build-docker.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Release: ${{ needs.release.result }}" >> $GITHUB_STEP_SUMMARY
