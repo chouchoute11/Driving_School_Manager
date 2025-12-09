@@ -17,7 +17,7 @@ module.exports = {
       statements: 15
     }
   },
-  coverageReporters: ['text', 'text-summary', 'html', 'lcov', 'json'],
+  coverageReporters: ['text', 'text-summary', 'html', 'lcov', 'json', 'json-summary'],
   testTimeout: 10000,
   verbose: true,
   bail: false,
