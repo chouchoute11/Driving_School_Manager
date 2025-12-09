@@ -1,0 +1,38 @@
+---
+# ConfigMap for application configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: driving-school-config
+  namespace: driving-school
+  labels:
+    app: driving-school
+    version: 1.0.1
+data:
+  NODE_ENV: "production"
+  PORT: "4000"
+  LOG_LEVEL: "info"
+  APP_NAME: "Driving School Lesson Manager"
+  ENABLE_HEALTH_CHECKS: "true"
+  HEALTH_CHECK_INTERVAL: "30"
+  MAX_CONNECTIONS: "100"
+  REQUEST_TIMEOUT: "30000"
+  CACHE_TTL: "3600"
+  SESSION_TIMEOUT: "1800"
+
+---
+# ConfigMap for deployment metadata
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deployment-metadata
+  namespace: driving-school
+  labels:
+    app: driving-school
+data:
+  release-version: "1.0.1"
+  build-date: "2025-12-09"
+  deployment-strategy: "rolling-update"
+  max-surge: "1"
+  max-unavailable: "0"
+  min-ready-seconds: "10"

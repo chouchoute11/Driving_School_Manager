@@ -1,0 +1,271 @@
+---
+# Deployment with Rolling Update strategy
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: driving-school-app
+  namespace: driving-school
+  labels:
+    app: driving-school
+    version: 1.0.1
+    tier: application
+  annotations:
+    description: "Driving School Lesson Manager - Rolling Update Deployment"
+    deployment-strategy: "rolling-update"
+spec:
+  # Rolling Update Configuration
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1           # Maximum number of pods above desired count during update
+      maxUnavailable: 0     # Ensure zero downtime - no pods taken down
+  
+  # Replica Configuration
+  replicas: 3
+  
+  # Pod Selection
+  selector:
+    matchLabels:
+      app: driving-school
+      tier: application
+  
+  # Pod Template
+  template:
+    metadata:
+      labels:
+        app: driving-school
+        tier: application
+        version: "1.0.1"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4000"
+        prometheus.io/path: "/metrics"
+    
+    spec:
+      # Pod Scheduling Configuration
+      affinity:
+        # Spread pods across different nodes for high availability
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - driving-school
+                topologyKey: kubernetes.io/hostname
+        
+        # Node affinity - prefer nodes with specific labels
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: node-type
+                    operator: In
+                    values:
+                      - application-server
+      
+      # Security Context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      
+      # Service Account
+      serviceAccountName: driving-school-sa
+      
+      # Termination Grace Period for graceful shutdown
+      terminationGracePeriodSeconds: 30
+      
+      # Container Specifications
+      containers:
+        - name: driving-school
+          image: chouchoute11/practical_cat_driving_lesson_school_management:1.0.1
+          imagePullPolicy: IfNotPresent
+          
+          # Container Ports
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          
+          # Environment Variables from ConfigMap
+          envFrom:
+            - configMapRef:
+                name: driving-school-config
+          
+          # Additional Environment Variables
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          
+          # Resource Management
+          resources:
+            # Requested resources (guaranteed minimum)
+            requests:
+              cpu: 250m                 # 0.25 CPU cores
+              memory: 256Mi             # 256 MB RAM
+              ephemeral-storage: 100Mi
+            
+            # Resource limits (maximum allowed)
+            limits:
+              cpu: 500m                 # 0.5 CPU cores
+              memory: 512Mi             # 512 MB RAM
+              ephemeral-storage: 500Mi
+          
+          # Health Checks
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 30        # 30 * 10 = 300 seconds startup window
+          
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 3
+          
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 2
+          
+          # Volume Mounts
+          volumeMounts:
+            - name: logs
+              mountPath: /app/logs
+            - name: temp
+              mountPath: /app/tmp
+            - name: cache
+              mountPath: /app/cache
+          
+          # Security Context for Container
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      
+      # Volumes
+      volumes:
+        - name: logs
+          emptyDir:
+            sizeLimit: 500Mi
+        - name: temp
+          emptyDir:
+            sizeLimit: 200Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 300Mi
+
+---
+# Blue-Green Deployment (Alternative Deployment)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: driving-school-app-blue
+  namespace: driving-school
+  labels:
+    app: driving-school
+    deployment-variant: blue
+    version: 1.0.0
+  annotations:
+    description: "Blue variant for blue-green deployment strategy"
+spec:
+  replicas: 0  # Scaled to 0 until needed for blue-green switch
+  
+  strategy:
+    type: Recreate  # Blue-Green uses Recreate strategy
+  
+  selector:
+    matchLabels:
+      app: driving-school
+      deployment-variant: blue
+  
+  template:
+    metadata:
+      labels:
+        app: driving-school
+        deployment-variant: blue
+        version: "1.0.0"
+    
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      
+      containers:
+        - name: driving-school
+          image: chouchoute11/practical_cat_driving_lesson_school_management:1.0.0
+          imagePullPolicy: IfNotPresent
+          
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+          
+          envFrom:
+            - configMapRef:
+                name: driving-school-config
+          
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 2

@@ -1,0 +1,12 @@
+---
+# Namespace for the application
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: driving-school
+  labels:
+    name: driving-school
+    environment: production
+    managed-by: kubernetes
+  annotations:
+    description: "Driving School Lesson Manager application namespace"
