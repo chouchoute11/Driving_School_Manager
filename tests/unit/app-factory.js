@@ -1,190 +1,238 @@
-const request = require('supertest');
-const { createTestApp } = require('./app-factory');
+const express = require('express');
+const path = require('path');
 
-describe('Lessons API Endpoints', () => {
-  let app;
+// Create a test app (mirrors main index.js structure)
+function createTestApp() {
+  const app = express();
+  
+  // In-memory store
+  const store = {
+    students: [],
+    instructors: [],
+    lessons: [],
+    reports: [],
+    nextIds: {
+      students: 1,
+      instructors: 1,
+      lessons: 1,
+      reports: 1
+    }
+  };
 
-  beforeEach(() => {
-    app = createTestApp();
-  });
+  // Middleware
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
+  app.use(express.static('public'));
 
-  describe('GET /api/lessons', () => {
-    test('should return empty lessons array initially', async () => {
-      const response = await request(app).get('/api/lessons');
-
-      expect(response.status).toBe(200);
-      expect(response.body.data).toEqual([]);
-      expect(response.body.pagination).toEqual({
-        page: 1,
-        limit: 10,
-        total: 0,
-        pages: 0
-      });
-    });
-
-    test('should return lessons with pagination', async () => {
-      // Create multiple lessons
-      for (let i = 0; i < 15; i++) {
-        await request(app).post('/api/lessons').send({
-          studentId: 1,
-          instructorId: 1,
-          date: '2025-12-10',
-          duration: 60,
-          status: 'scheduled'
-        });
-      }
-
-      const response = await request(app)
-        .get('/api/lessons')
-        .query({ page: 1, limit: 10 });
-
-      expect(response.status).toBe(200);
-      expect(response.body.data).toHaveLength(10);
-      expect(response.body.pagination.total).toBe(15);
-      expect(response.body.pagination.pages).toBe(2);
-    });
-
-    test('should filter lessons by status', async () => {
-      await request(app).post('/api/lessons').send({
-        studentId: 1,
-        instructorId: 1,
-        date: '2025-12-10',
-        duration: 60,
-        status: 'scheduled'
-      });
-
-      await request(app).post('/api/lessons').send({
-        studentId: 1,
-        instructorId: 1,
-        date: '2025-12-11',
-        duration: 60,
-        status: 'completed'
-      });
-
-      const response = await request(app)
-        .get('/api/lessons')
-        .query({ status: 'completed' });
-
-      expect(response.status).toBe(200);
-      expect(response.body.data).toHaveLength(1);
-      expect(response.body.data[0].status).toBe('completed');
+  // Health check
+  app.get('/health', (req, res) => {
+    res.json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      dataStore: 'in-memory'
     });
   });
 
-  describe('POST /api/lessons', () => {
-    test('should create a new lesson with valid data', async () => {
-      const lessonData = {
-        studentId: 1,
-        instructorId: 1,
-        date: '2025-12-10',
-        duration: 60,
-        status: 'scheduled',
-        notes: 'Test lesson'
-      };
+  // Ready check
+  app.get('/ready', (req, res) => {
+    res.json({ status: 'ready', ready: true });
+  });
 
-      const response = await request(app)
-        .post('/api/lessons')
-        .send(lessonData);
+  // Home
+  app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '../../public/index.html'));
+  });
 
-      expect(response.status).toBe(201);
-      expect(response.body).toMatchObject(lessonData);
-      expect(response.body.id).toBeDefined();
-      expect(response.body.createdAt).toBeDefined();
-    });
+  // ============================================
+  // LESSONS ENDPOINTS
+  // ============================================
 
-    test('should return 400 for missing required fields', async () => {
-      const response = await request(app)
-        .post('/api/lessons')
-        .send({
-          studentId: 1,
-          date: '2025-12-10'
-          // missing instructorId and duration
-        });
+  app.get('/api/lessons', (req, res) => {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const status = req.query.status;
 
-      expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Missing required fields');
-    });
+    let lessons = store.lessons;
+    if (status) {
+      lessons = lessons.filter(l => l.status === status);
+    }
 
-    test('should set default status to scheduled', async () => {
-      const response = await request(app)
-        .post('/api/lessons')
-        .send({
-          studentId: 1,
-          instructorId: 1,
-          date: '2025-12-10',
-          duration: 60
-        });
+    const total = lessons.length;
+    const start = (page - 1) * limit;
+    const paginatedLessons = lessons.slice(start, start + limit);
 
-      expect(response.status).toBe(201);
-      expect(response.body.status).toBe('scheduled');
+    res.json({
+      data: paginatedLessons,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) }
     });
   });
 
-  describe('PUT /api/lessons/:id', () => {
-    test('should update an existing lesson', async () => {
-      // Create a lesson
-      const createResponse = await request(app)
-        .post('/api/lessons')
-        .send({
-          studentId: 1,
-          instructorId: 1,
-          date: '2025-12-10',
-          duration: 60,
-          status: 'scheduled'
-        });
+  app.post('/api/lessons', (req, res) => {
+    const { studentId, instructorId, date, duration, status, notes } = req.body;
 
-      const lessonId = createResponse.body.id;
+    if (!studentId || !instructorId || !date || !duration) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
 
-      // Update it
-      const updateResponse = await request(app)
-        .put(`/api/lessons/${lessonId}`)
-        .send({ status: 'completed', notes: 'Lesson completed successfully' });
+    const newLesson = {
+      id: store.nextIds.lessons++,
+      studentId,
+      instructorId,
+      date,
+      duration,
+      status: status || 'scheduled',
+      notes: notes || '',
+      createdAt: new Date().toISOString()
+    };
 
-      expect(updateResponse.status).toBe(200);
-      expect(updateResponse.body.status).toBe('completed');
-      expect(updateResponse.body.notes).toBe('Lesson completed successfully');
-    });
+    store.lessons.push(newLesson);
+    res.status(201).json(newLesson);
+  });
 
-    test('should return 404 for non-existent lesson', async () => {
-      const response = await request(app)
-        .put('/api/lessons/999')
-        .send({ status: 'completed' });
+  app.put('/api/lessons/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    const lesson = store.lessons.find(l => l.id === id);
 
-      expect(response.status).toBe(404);
-      expect(response.body.error).toBe('Lesson not found');
+    if (!lesson) {
+      return res.status(404).json({ error: 'Lesson not found' });
+    }
+
+    Object.assign(lesson, req.body);
+    res.json(lesson);
+  });
+
+  app.delete('/api/lessons/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    const index = store.lessons.findIndex(l => l.id === id);
+
+    if (index === -1) {
+      return res.status(404).json({ error: 'Lesson not found' });
+    }
+
+    const deleted = store.lessons.splice(index, 1);
+    res.json({ message: 'Lesson deleted', data: deleted[0] });
+  });
+
+  // ============================================
+  // STUDENTS ENDPOINTS
+  // ============================================
+
+  app.get('/api/students', (req, res) => {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+
+    const total = store.students.length;
+    const start = (page - 1) * limit;
+    const paginatedStudents = store.students.slice(start, start + limit);
+
+    res.json({
+      data: paginatedStudents,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) }
     });
   });
 
-  describe('DELETE /api/lessons/:id', () => {
-    test('should delete an existing lesson', async () => {
-      // Create a lesson
-      const createResponse = await request(app)
-        .post('/api/lessons')
-        .send({
-          studentId: 1,
-          instructorId: 1,
-          date: '2025-12-10',
-          duration: 60
-        });
+  app.post('/api/students', (req, res) => {
+    const { name, email, phone, licenseStatus } = req.body;
 
-      const lessonId = createResponse.body.id;
+    if (!name || !email) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
 
-      // Delete it
-      const deleteResponse = await request(app).delete(`/api/lessons/${lessonId}`);
+    const newStudent = {
+      id: store.nextIds.students++,
+      name,
+      email,
+      phone: phone || '',
+      licenseStatus: licenseStatus || 'pending',
+      lessonsCompleted: 0,
+      totalCost: 0,
+      createdAt: new Date().toISOString()
+    };
 
-      expect(deleteResponse.status).toBe(200);
-      expect(deleteResponse.body.data.id).toBe(lessonId);
+    store.students.push(newStudent);
+    res.status(201).json(newStudent);
+  });
 
-      // Verify it's deleted
-      const getResponse = await request(app).get('/api/lessons');
-      expect(getResponse.body.data).toHaveLength(0);
-    });
+  // ============================================
+  // INSTRUCTORS ENDPOINTS
+  // ============================================
 
-    test('should return 404 when deleting non-existent lesson', async () => {
-      const response = await request(app).delete('/api/lessons/999');
+  app.get('/api/instructors', (req, res) => {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
 
-      expect(response.status).toBe(404);
-      expect(response.body.error).toBe('Lesson not found');
+    const total = store.instructors.length;
+    const start = (page - 1) * limit;
+    const paginatedInstructors = store.instructors.slice(start, start + limit);
+
+    res.json({
+      data: paginatedInstructors,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) }
     });
   });
-});
+
+  app.post('/api/instructors', (req, res) => {
+    const { name, email, phone, specialization } = req.body;
+
+    if (!name || !email) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const newInstructor = {
+      id: store.nextIds.instructors++,
+      name,
+      email,
+      phone: phone || '',
+      specialization: specialization || 'standard',
+      lessonsGiven: 0,
+      rating: 0,
+      createdAt: new Date().toISOString()
+    };
+
+    store.instructors.push(newInstructor);
+    res.status(201).json(newInstructor);
+  });
+
+  // ============================================
+  // REPORTS ENDPOINTS
+  // ============================================
+
+  app.get('/api/reports', (req, res) => {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+
+    const total = store.reports.length;
+    const start = (page - 1) * limit;
+    const paginatedReports = store.reports.slice(start, start + limit);
+
+    res.json({
+      data: paginatedReports,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) }
+    });
+  });
+
+  app.post('/api/reports', (req, res) => {
+    const { type, startDate, endDate, format } = req.body;
+
+    if (!type || !startDate || !endDate) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const newReport = {
+      id: store.nextIds.reports++,
+      type,
+      startDate,
+      endDate,
+      format: format || 'json',
+      status: 'generated',
+      generatedAt: new Date().toISOString()
+    };
+
+    store.reports.push(newReport);
+    res.status(201).json(newReport);
+  });
+
+  return app;
+}
+
+module.exports = { createTestApp };

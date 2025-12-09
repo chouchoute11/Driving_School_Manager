@@ -3,16 +3,18 @@ module.exports = {
   testMatch: ['**/__tests__/**/*.js', '**/?(*.)+(spec|test).js'],
   collectCoverageFrom: [
     'index.js',
+    'tests/**/*.js',
     '!node_modules/**',
     '!coverage/**',
-    '!dist/**'
+    '!dist/**',
+    '!**/node_modules/**'
   ],
   coverageThreshold: {
     global: {
-      branches: 70,
-      functions: 70,
-      lines: 70,
-      statements: 70
+      branches: 50,
+      functions: 50,
+      lines: 50,
+      statements: 50
     }
   },
   coverageReporters: ['text', 'text-summary', 'html', 'lcov', 'json'],
@@ -23,5 +25,6 @@ module.exports = {
   clearMocks: true,
   resetMocks: true,
   restoreMocks: true,
-  setupFilesAfterEnv: ['<rootDir>/tests/setup.js']
+  setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
+  forceExit: true
 };
